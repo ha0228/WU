@@ -3,3 +3,5 @@ matplotlib
 scikit-learn
 numpy
 pandas
+bs4
+BeautifulSoup
