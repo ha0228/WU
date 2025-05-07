@@ -54,29 +54,23 @@ def load_all_tables():
 # --- Load data
 data = load_all_tables()
 
-# --- Layout: Filters Left, Graph Right ---
+# --- Layout: Filters Left, Chart Right ---
 colL, colR = st.columns([0.7, 0.3])  # Filters 70%, Chart 30%
 
 with colL:
     st.markdown("### Choose Event Types:")
     c1, c2, c3 = st.columns(3)
     with c1:
-        squat_fp = st.checkbox('Squat (Full Power)', value=True, key="squat_fp")
         squat_all = st.checkbox('Squat (All Events)', value=True, key="squat_all")
     with c2:
-        bench_fp = st.checkbox('Bench (Full Power)', value=True, key="bench_fp")
         bench_all = st.checkbox('Bench (All Events)', value=True, key="bench_all")
     with c3:
-        deadlift_fp = st.checkbox('Deadlift (Full Power)', value=True, key="deadlift_fp")
         deadlift_all = st.checkbox('Deadlift (All Events)', value=True, key="deadlift_all")
         total = st.checkbox('Total', value=True, key="total")
 
     selected_event_types = []
-    if squat_fp: selected_event_types.append('Squat (Full Power)')
     if squat_all: selected_event_types.append('Squat (All Events)')
-    if bench_fp: selected_event_types.append('Bench (Full Power)')
     if bench_all: selected_event_types.append('Bench (All Events)')
-    if deadlift_fp: selected_event_types.append('Deadlift (Full Power)')
     if deadlift_all: selected_event_types.append('Deadlift (All Events)')
     if total: selected_event_types.append('Total')
 
@@ -124,50 +118,74 @@ if name_search and 'Lifter' in filtered_data.columns:
     else:
         filtered_data = filtered_data[filtered_data['Lifter'].str.contains(re.escape(name_search), case=False, regex=True, na=False)]
 
-# --- Right-side chart with value labels ---
-with colR:
-    st.markdown("### Top Total by Class (Rank 1)")
-
-    rank1_df = filtered_data[filtered_data['Rank'] == '1'].copy()
-
-    if not rank1_df.empty and 'Total' in rank1_df.columns and 'Class' in rank1_df.columns:
-        rank1_df = rank1_df[rank1_df['Total'].notna()]
-        rank1_df['Lift'] = pd.to_numeric(rank1_df['Total'], errors='coerce')
-        rank1_df = rank1_df.dropna(subset=['Lift'])
-        rank1_df = rank1_df.sort_values(
-            by='Class',
-            key=lambda x: x.map(lambda v: float(v) if v.replace('.', '', 1).isdigit() else float('inf'))
-        )
-
-        # Styled dark-theme chart
-        plt.style.use('dark_background')
-        fig, ax = plt.subplots(figsize=(3.5, 4.5), facecolor='#0e1117')
-        bars = ax.barh(rank1_df['Class'], rank1_df['Lift'], color='#ff6361')
-
-        ax.set_xlabel("Total (kg)", color='white')
-        ax.set_ylabel("Class", color='white')
-        ax.tick_params(axis='x', colors='white')
-        ax.tick_params(axis='y', colors='white')
-        ax.set_facecolor('#0e1117')
-        for spine in ax.spines.values():
-            spine.set_color('white')
-        ax.grid(color='#444444', linestyle='--', linewidth=0.5, alpha=0.3)
-        ax.invert_yaxis()
-
-        # Add value labels to the bars
-        for bar in bars:
-            width = bar.get_width()
-            ax.text(width + 10, bar.get_y() + bar.get_height() / 2,
-                    f'{width:.1f}', va='center', ha='left', color='white', fontsize=8)
-
-        st.pyplot(fig)
-
-# Display Each Table Separately ---
+# --- Group filtered tables by event (used in chart + display)
+grouped_event_dfs = {}
 if not filtered_data.empty:
     for event in selected_event_types:
         event_df = filtered_data[filtered_data['Event'] == event]
         if not event_df.empty:
-            st.subheader(event)
-            st.dataframe(event_df.drop(columns=["Event"]), hide_index=True, use_container_width=True)
+            grouped_event_dfs[event] = event_df
+
+# --- Right-side chart: dynamic title + value labels ---
+with colR:
+    chart_title = "🏋️ Top Lift by Class (Rank 1)"  # default
+
+    if grouped_event_dfs:
+        combined_df = pd.concat(grouped_event_dfs.values())
+
+        # Determine lift column to display (based on selected event type)
+        lift_column = None
+        lift_order = ['Total', 'Deadlift', 'Squat', 'Bench']
+        for col in lift_order:
+            if any(col.lower() in e.lower() for e in selected_event_types):
+                if col in combined_df.columns:
+                    lift_column = col
+                    break
+
+        if lift_column:
+            chart_title = f"🏋️ Top {lift_column} by Class (Rank 1)"
+            rank1_df = combined_df[combined_df['Rank'] == '1'].copy()
+            rank1_df = rank1_df[rank1_df[lift_column].notna()]
+            rank1_df['Lift'] = pd.to_numeric(rank1_df[lift_column], errors='coerce')
+            rank1_df = rank1_df.dropna(subset=['Lift'])
+            rank1_df = rank1_df.sort_values(
+                by='Class',
+                key=lambda x: x.map(lambda v: float(v) if v.replace('.', '', 1).isdigit() else float('inf'))
+            )
+
+            plt.style.use('dark_background')
+            fig, ax = plt.subplots(figsize=(3.5, 4.5), facecolor='#0e1117')
+            bars = ax.barh(rank1_df['Class'], rank1_df['Lift'], color='#ff6361')
+
+            ax.set_xlabel(f"{lift_column} (kg)", color='white')
+            ax.set_ylabel("Class", color='white')
+            ax.tick_params(axis='x', colors='white')
+            ax.tick_params(axis='y', colors='white')
+            ax.set_facecolor('#0e1117')
+            for spine in ax.spines.values():
+                spine.set_color('white')
+            ax.grid(color='#444444', linestyle='--', linewidth=0.5, alpha=0.3)
+            ax.invert_yaxis()
+
+            # Add value labels to bars
+            for bar in bars:
+                width = bar.get_width()
+                ax.text(width + 10, bar.get_y() + bar.get_height() / 2,
+                        f'{width:.1f}', va='center', ha='left', color='white', fontsize=8)
+
+            st.markdown(f"### {chart_title}")
+            st.pyplot(fig)
+        else:
+            st.markdown(f"### {chart_title}")
+            st.info("No valid lift column found to display chart.")
+    else:
+        st.markdown(f"### {chart_title}")
+        st.info("No records to display chart.")
+
+# --- Display each table separately by event ---
+if grouped_event_dfs:
+    for event, df in grouped_event_dfs.items():
+        st.subheader(event)
+        st.dataframe(df.drop(columns=["Event"]), hide_index=True, use_container_width=True)
 else:
     st.warning("No records match your filters.")
